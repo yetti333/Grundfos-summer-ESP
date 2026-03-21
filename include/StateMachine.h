@@ -1,0 +1,56 @@
+#pragma once
+
+#include "AppTypes.h"
+#include "EventLog.h"
+#include "ConfigStorage.h"
+
+class StateMachine {
+public:
+    StateMachine(QueueHandle_t stateQ, QueueHandle_t ledQ, QueueHandle_t pumpCmdQ, EventGroupHandle_t eg,
+                 ConfigStorage& cfg, EventLog& log);
+
+    void begin();
+    void taskLoop();
+
+    SystemState state() const;
+    ScheduleConfig schedule() const;
+    void getSnapshotJson(String& outHeartbeat, String& outStatus);
+
+    void setWifiInfo(bool connected, int32_t rssi);
+    void setPulseInfo(uint16_t hz, uint32_t count, uint8_t stability, bool ok, uint32_t lastTs);
+
+private:
+    void setState(SystemState s);
+    void setLed(LedPattern p);
+    void startPumpAuto();
+    void startPumpManual();
+    void stopPump();
+    void checkAutoSchedule();
+
+    QueueHandle_t _stateQ;
+    QueueHandle_t _ledQ;
+    QueueHandle_t _pumpCmdQ;
+    EventGroupHandle_t _eg;
+    ConfigStorage& _cfg;
+    EventLog& _log;
+    SemaphoreHandle_t _mtx;
+
+    SystemState _state;
+    ScheduleConfig _schedule;
+    bool _wifiErr;
+    bool _timeErr;
+    bool _pumpErr;
+    bool _bypass;
+    bool _manual;
+
+    bool _wifiConnected;
+    int32_t _wifiRssi;
+    bool _pulseOk;
+    uint16_t _pulseHz;
+    uint32_t _pulseCountLastMin;
+    uint8_t _pulseStability;
+    uint32_t _lastPulseTs;
+
+    uint32_t _uptimeStart;
+    int _lastAutoMinute;
+};
