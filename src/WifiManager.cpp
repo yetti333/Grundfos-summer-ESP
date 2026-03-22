@@ -14,8 +14,10 @@ bool WifiManager::loadCredentials() {
 #if HAS_SECRETS
     _ssid = WIFI_SSID;
     _pass = WIFI_PASSWORD;
+    Serial.println("Using WiFi credentials from secrets.h");
     return !_ssid.isEmpty();
 #else
+    Serial.println("Loading WiFi credentials from storage");
     return _storage.loadWifi(_ssid, _pass);
 #endif
 }
@@ -35,6 +37,7 @@ void WifiManager::begin(bool forceProvision) {
 
 void WifiManager::startProvisionAp() {
     _provisioning = true;
+    Serial.println("Starting WiFi provisioning AP");
     WiFi.mode(WIFI_AP);
     WiFi.softAP("Grundfos-Provision", "grundfos123");
     MDNS.begin("grundfos-pump");
@@ -48,6 +51,7 @@ void WifiManager::connectIfNeeded() {
     _lastAttemptMs = now;
     WiFi.mode(WIFI_STA);
     WiFi.begin(_ssid.c_str(), _pass.c_str());
+    Serial.printf("Attempting to connect to WiFi SSID '%s'\n", _ssid.c_str());
 }
 
 int32_t WifiManager::rssi() const {
@@ -67,9 +71,11 @@ void WifiManager::taskLoop() {
     if (s != last) {
         if (s == WL_CONNECTED) {
             StateEvent ev{StateEventType::WIFI_CONNECTED, (int32_t)WiFi.RSSI(), 0, 0, true};
+            Serial.printf("Connected to WiFi SSID '%s', RSSI: %d\n", WiFi.SSID().c_str(), WiFi.RSSI());
             xQueueSend(_stateQ, &ev, 0);
         } else {
             StateEvent ev{StateEventType::WIFI_DISCONNECTED, 0, 0, 0, false};
+            Serial.println("WiFi disconnected");
             xQueueSend(_stateQ, &ev, 0);
         }
         last = s;

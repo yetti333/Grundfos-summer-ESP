@@ -192,12 +192,14 @@ void StateMachine::taskLoop() {
                     _bypass = false;
                     xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
                     xEventGroupClearBits(_eg, AUTO_MODE_BIT);
+                    Serial.println("Switching to manual mode");
                     setState(SystemState::MANUAL_MODE);
                 } else if (_state == SystemState::MANUAL_MODE) {
                     _manual = false;
                     _bypass = false;
                     xEventGroupSetBits(_eg, AUTO_MODE_BIT);
                     xEventGroupClearBits(_eg, MANUAL_MODE_BIT | BYPASS_ACTIVE_BIT);
+                    Serial.println("Switching to auto mode");
                     setState(SystemState::AUTO_MODE);
                 }
                 break;

@@ -33,6 +33,7 @@ void ButtonHandler::taskLoop() {
 
                 if (dur < 1000) {
                     ButtonEvent sh{ButtonEventType::SHORT_PRESS, dur};
+                    Serial.println("Short press detected");
                     xQueueSend(_buttonQ, &sh, 0);
                     StateEvent s2{StateEventType::BUTTON_SHORT, (int32_t)dur, 0, 0, false};
                     xQueueSend(_stateQ, &s2, 0);
@@ -46,6 +47,7 @@ void ButtonHandler::taskLoop() {
         if (!_longSent && dur >= 3000) {
             _longSent = true;
             ButtonEvent ev{ButtonEventType::LONG_PRESS, dur};
+            Serial.println("Long press detected");
             xQueueSend(_buttonQ, &ev, 0);
             StateEvent sev{StateEventType::BUTTON_LONG, (int32_t)dur, 0, 0, false};
             xQueueSend(_stateQ, &sev, 0);
@@ -53,6 +55,7 @@ void ButtonHandler::taskLoop() {
         if (!_vLongSent && dur >= 5000) {
             _vLongSent = true;
             ButtonEvent ev{ButtonEventType::VERY_LONG_PRESS, dur};
+            Serial.println("Very long press detected");
             xQueueSend(_buttonQ, &ev, 0);
             StateEvent sev{StateEventType::BUTTON_VLONG, (int32_t)dur, 0, 0, false};
             xQueueSend(_stateQ, &sev, 0);

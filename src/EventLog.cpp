@@ -17,6 +17,7 @@ void EventLog::add(const String& type, const String& detail) {
         } else {
             _head = (_head + 1) % CAPACITY;
         }
+        Serial.printf("[%lu] %s: %s\n", _events[idx].timestamp, type.c_str(), detail.c_str());
         xSemaphoreGive(_mtx);
     }
 }

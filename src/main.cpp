@@ -99,6 +99,7 @@ void taskApi(void*) {
 
 void setup() {
     Serial.begin(115200);
+    Serial.println("Starting setup...");
     esp_task_wdt_init(10, true);
 
     gCfg.begin();
@@ -127,6 +128,7 @@ void setup() {
 
     bool bootReset = detectBootResetRequest();
     if (bootReset) {
+        Serial.println("Boot reset requested");
         LedPattern p = LedPattern::ALL_SOLID;
         xQueueSend(qLedCommands, &p, 0);
         while (digitalRead(PIN_BUTTON) == LOW) {
