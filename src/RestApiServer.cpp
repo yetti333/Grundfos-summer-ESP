@@ -88,6 +88,10 @@ void RestApiServer::begin() {
             });
         });
 
+    _server.on("/bypass", HTTP_GET, [this](AsyncWebServerRequest* req) {
+        req->send(200, "application/json", String("{\"bypass\":") + (_sm.isBypassActive() ? "true" : "false") + "}");
+    });
+
     _server.on("/pump/start", HTTP_POST, [this](AsyncWebServerRequest* req) {
         StateEvent e{StateEventType::API_PUMP_START, 0, 0, 0, false};
         xQueueSend(_stateQ, &e, 0);

@@ -6,7 +6,7 @@ StateMachine::StateMachine(QueueHandle_t stateQ, QueueHandle_t ledQ, QueueHandle
                            ConfigStorage& cfg, EventLog& log)
     : _stateQ(stateQ), _ledQ(ledQ), _pumpCmdQ(pumpCmdQ), _eg(eg), _cfg(cfg), _log(log),
       _state(SystemState::BOOT), _wifiErr(false), _timeErr(false), _pumpErr(false),
-      _bypass(false), _manual(false), _wifiConnected(false), _wifiRssi(-127), _pulseOk(false),
+      _bypass(false), _bypassApiValue(false), _manual(false), _wifiConnected(false), _wifiRssi(-127), _pulseOk(false),
       _pulseHz(0), _pulseCountLastMin(0), _pulseStability(0), _lastPulseTs(0), _uptimeStart(millis()),
       _lastAutoMinute(-1) {
     _mtx = xSemaphoreCreateMutex();
@@ -14,6 +14,7 @@ StateMachine::StateMachine(QueueHandle_t stateQ, QueueHandle_t ledQ, QueueHandle
 
 void StateMachine::begin() {
     _cfg.loadSchedule(_schedule);
+    updateBypass();
     setState(SystemState::BOOT);
 }
 
@@ -86,19 +87,8 @@ void StateMachine::stopPump() {
     _log.add("PUMP_STOP", "Requested");
 }
 
-void StateMachine::checkAutoSchedule() {
-    if (_manual || !_wifiConnected || _timeErr) return;
-    time_t now = time(nullptr);
-    if (now < 1700000000) return;
-    tm t{};
-    localtime_r(&now, &t);
-    int minuteOfDay = t.tm_hour * 60 + t.tm_min;
-    int target = _schedule.startHour * 60 + _schedule.startMinute;
-    if (minuteOfDay == target && _lastAutoMinute != minuteOfDay &&
-        (_state == SystemState::AUTO_MODE)) {
-        _lastAutoMinute = minuteOfDay;
-        startPumpAuto();
-    }
+void StateMachine::updateBypass() {
+    _bypass = _manual || _bypassApiValue;
 }
 
 void StateMachine::taskLoop() {
@@ -140,6 +130,8 @@ void StateMachine::taskLoop() {
 
             case StateEventType::PULSE_UPDATE:
                 setPulseInfo((uint16_t)ev.a, (uint32_t)ev.c, (uint8_t)ev.b, ev.flag, (uint32_t)time(nullptr));
+                // Log pulse info every second
+                Serial.printf("Pulse count last min: %u, Mode: %s, Bypass: %s\n", _pulseCountLastMin, _manual ? "MAN" : "AUTO", _bypass ? "ON" : "OFF");
                 if (_state == SystemState::PUMP_RUNNING && !_bypass && !ev.flag) {
                     _pumpErr = true;
                     xEventGroupSetBits(_eg, PUMP_ERROR_BIT);
@@ -163,6 +155,7 @@ void StateMachine::taskLoop() {
                     _pumpErr = false;
                     xEventGroupClearBits(_eg, PUMP_ERROR_BIT);
                     _manual = true;
+                    updateBypass();
                     xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
                     xEventGroupClearBits(_eg, AUTO_MODE_BIT);
                     setState(SystemState::MANUAL_MODE);
@@ -175,14 +168,16 @@ void StateMachine::taskLoop() {
             case StateEventType::BUTTON_LONG:
                 if (_state == SystemState::AUTO_MODE) {
                     _manual = true;
-                    _bypass = false;
+                    _bypassApiValue = false;
+                    updateBypass();
                     xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
                     xEventGroupClearBits(_eg, AUTO_MODE_BIT);
                     Serial.println("Switching to manual mode");
                     setState(SystemState::MANUAL_MODE);
                 } else if (_state == SystemState::MANUAL_MODE) {
                     _manual = false;
-                    _bypass = false;
+                    _bypassApiValue = false;
+                    updateBypass();
                     xEventGroupSetBits(_eg, AUTO_MODE_BIT);
                     xEventGroupClearBits(_eg, MANUAL_MODE_BIT | BYPASS_ACTIVE_BIT);
                     Serial.println("Switching to auto mode");
@@ -196,7 +191,8 @@ void StateMachine::taskLoop() {
 
             case StateEventType::BUTTON_RELEASE:
                 if (_state == SystemState::BYPASS_MODE && ev.a >= 5000) {
-                    _bypass = true;
+                    _bypassApiValue = true;
+                    updateBypass();
                     xEventGroupSetBits(_eg, BYPASS_ACTIVE_BIT);
                     setState(SystemState::MANUAL_MODE);
                     _log.add("BYPASS", "Enabled");
@@ -205,7 +201,7 @@ void StateMachine::taskLoop() {
 
             case StateEventType::API_SET_MODE_AUTO:
                 _manual = false;
-                _bypass = false;
+                updateBypass();
                 xEventGroupSetBits(_eg, AUTO_MODE_BIT);
                 xEventGroupClearBits(_eg, MANUAL_MODE_BIT | BYPASS_ACTIVE_BIT);
                 setState(SystemState::AUTO_MODE);
@@ -213,18 +209,21 @@ void StateMachine::taskLoop() {
 
             case StateEventType::API_SET_MODE_MANUAL:
                 _manual = true;
+                updateBypass();
                 xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
                 xEventGroupClearBits(_eg, AUTO_MODE_BIT);
                 setState(SystemState::MANUAL_MODE);
                 break;
 
             case StateEventType::API_SET_BYPASS_ON:
-                _bypass = true;
+                _bypassApiValue = true;
+                updateBypass();
                 xEventGroupSetBits(_eg, BYPASS_ACTIVE_BIT);
                 break;
 
             case StateEventType::API_SET_BYPASS_OFF:
-                _bypass = false;
+                _bypassApiValue = false;
+                updateBypass();
                 xEventGroupClearBits(_eg, BYPASS_ACTIVE_BIT);
                 break;
 

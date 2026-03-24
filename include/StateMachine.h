@@ -15,6 +15,7 @@ public:
     SystemState state() const;
     ScheduleConfig schedule() const;
     void getSnapshotJson(String& outHeartbeat, String& outStatus);
+    bool isBypassActive() const { return _bypass; }
 
     void setWifiInfo(bool connected, int32_t rssi);
     void setPulseInfo(uint16_t hz, uint32_t count, uint8_t stability, bool ok, uint32_t lastTs);
@@ -26,6 +27,7 @@ private:
     void startPumpManual();
     void stopPump();
     void checkAutoSchedule();
+    void updateBypass();
 
     QueueHandle_t _stateQ;
     QueueHandle_t _ledQ;
@@ -41,6 +43,7 @@ private:
     bool _timeErr;
     bool _pumpErr;
     bool _bypass;
+    bool _bypassApiValue;  // API-controlled bypass value
     bool _manual;
 
     bool _wifiConnected;
