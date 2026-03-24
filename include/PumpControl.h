@@ -19,5 +19,4 @@ private:
     uint32_t _startMs;
     uint32_t _durationSec;
     uint32_t _testSec;
-    bool _testDoneSent;
 };

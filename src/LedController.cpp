@@ -15,16 +15,16 @@ void LedController::setRaw(bool g, bool r, bool b) {
     digitalWrite(PIN_LED_RED, r ? HIGH : LOW);
     digitalWrite(PIN_LED_BLUE, b ? HIGH : LOW);
 }
-
+// LED patterns: green, red, blue, on duration ms, off duration ms, solid
 LedController::BlinkCfg LedController::cfgFor(LedPattern p) {
     switch (p) {
         case LedPattern::ALL_SOLID:   return {true, true, true, 0, 0, true};
         case LedPattern::WIFI_CONNECT:return {true, false, true, 500, 500, false};
         case LedPattern::WIFI_ERROR:  return {false, true, true, 30, 30, false};
-        case LedPattern::TIME_ERROR:  return {true, true, false, 30, 30, false};
-        case LedPattern::AUTO_IDLE:   return {true, false, false, 800, 200, false};
-        case LedPattern::MANUAL_IDLE: return {false, false, true, 800, 200, false};
-        case LedPattern::BYPASS_IDLE: return {false, false, true, 500, 500, false};
+        case LedPattern::TIME_ERROR:  return {false, true, true, 30, 30, false};
+        case LedPattern::AUTO_IDLE:   return {true, false, false, 40, 1000, false};
+        case LedPattern::MANUAL_IDLE: return {true, false, false, 0, 0, true};
+        case LedPattern::BYPASS_IDLE: return {true, false, true, 500, 500, false};
         case LedPattern::PUMP_RUNNING:return {true, false, false, 0, 0, true};
         case LedPattern::PUMP_ERROR:  return {false, true, false, 30, 30, false};
         case LedPattern::OFF:

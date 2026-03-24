@@ -2,7 +2,7 @@
 
 PumpControl::PumpControl(QueueHandle_t cmdQ, QueueHandle_t stateQ, EventGroupHandle_t eg)
     : _cmdQ(cmdQ), _stateQ(stateQ), _eg(eg), _running(false), _startMs(0),
-      _durationSec(0), _testSec(0), _testDoneSent(false) {}
+      _durationSec(0), _testSec(0) {}
 
 void PumpControl::begin() {
     _relay.begin();
@@ -25,19 +25,12 @@ void PumpControl::taskLoop() {
             _startMs = millis();
             _durationSec = cmd.durationSec;
             _testSec = cmd.testSec;
-            _testDoneSent = false;
             xEventGroupSetBits(_eg, PUMP_RUNNING_BIT);
         }
     }
 
     if (_running) {
         uint32_t elapsed = (millis() - _startMs) / 1000U;
-
-        if (!_testDoneSent && _testSec > 0 && elapsed >= _testSec) {
-            _testDoneSent = true;
-            StateEvent ev{StateEventType::PUMP_TEST_WINDOW_DONE, 0, 0, 0, false};
-            xQueueSend(_stateQ, &ev, 0);
-        }
 
         if (_durationSec > 0 && elapsed >= _durationSec) {
             _relay.set(false);

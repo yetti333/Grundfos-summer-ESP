@@ -29,7 +29,6 @@ enum class SystemState : uint8_t {
     AUTO_MODE,
     MANUAL_MODE,
     BYPASS_MODE,
-    PUMP_TEST,
     PUMP_RUNNING,
     PUMP_ERROR
 };
@@ -78,7 +77,6 @@ enum class StateEventType : uint8_t {
     TIME_SYNC_OK,
     TIME_SYNC_FAIL,
     PULSE_UPDATE,
-    PUMP_TEST_WINDOW_DONE,
     PUMP_RUN_FINISHED,
     API_SET_MODE_AUTO,
     API_SET_MODE_MANUAL,

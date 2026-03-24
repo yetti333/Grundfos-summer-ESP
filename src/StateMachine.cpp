@@ -57,8 +57,7 @@ void StateMachine::setState(SystemState s) {
         case SystemState::AUTO_MODE: setLed(LedPattern::AUTO_IDLE); break;
         case SystemState::MANUAL_MODE: setLed(LedPattern::MANUAL_IDLE); break;
         case SystemState::BYPASS_MODE: setLed(LedPattern::BYPASS_IDLE); break;
-        case SystemState::PUMP_RUNNING:
-        case SystemState::PUMP_TEST: setLed(LedPattern::PUMP_RUNNING); break;
+        case SystemState::PUMP_RUNNING: setLed(LedPattern::PUMP_RUNNING); break;
         case SystemState::PUMP_ERROR: setLed(LedPattern::PUMP_ERROR); break;
         case SystemState::BOOT: setLed(LedPattern::ALL_SOLID); break;
         default: setLed(LedPattern::OFF); break;
@@ -66,9 +65,9 @@ void StateMachine::setState(SystemState s) {
 }
 
 void StateMachine::startPumpAuto() {
-    PumpCommand c{PumpCommandType::START_AUTO, (uint32_t)_schedule.durationMinutes * 60U, 60U};
+    PumpCommand c{PumpCommandType::START_AUTO, (uint32_t)_schedule.durationMinutes * 60U, 0};
     xQueueSend(_pumpCmdQ, &c, 0);
-    setState(SystemState::PUMP_TEST);
+    setState(SystemState::PUMP_RUNNING);
     _log.add("PUMP_START", "Automatic schedule");
 }
 
@@ -141,25 +140,12 @@ void StateMachine::taskLoop() {
 
             case StateEventType::PULSE_UPDATE:
                 setPulseInfo((uint16_t)ev.a, (uint32_t)ev.c, (uint8_t)ev.b, ev.flag, (uint32_t)time(nullptr));
-                if ((_state == SystemState::PUMP_TEST || _state == SystemState::PUMP_RUNNING) && !_bypass && !ev.flag) {
+                if (_state == SystemState::PUMP_RUNNING && !_bypass && !ev.flag) {
                     _pumpErr = true;
                     xEventGroupSetBits(_eg, PUMP_ERROR_BIT);
                     stopPump();
                     setState(SystemState::PUMP_ERROR);
                     _log.add("PUMP_ERROR", "Pulse missing");
-                }
-                break;
-
-            case StateEventType::PUMP_TEST_WINDOW_DONE:
-                if (_state == SystemState::PUMP_TEST) {
-                    if (_bypass || _pulseOk) setState(SystemState::PUMP_RUNNING);
-                    else {
-                        _pumpErr = true;
-                        xEventGroupSetBits(_eg, PUMP_ERROR_BIT);
-                        stopPump();
-                        setState(SystemState::PUMP_ERROR);
-                        _log.add("PUMP_ERROR", "Test minute failed");
-                    }
                 }
                 break;
 
@@ -181,7 +167,7 @@ void StateMachine::taskLoop() {
                     xEventGroupClearBits(_eg, AUTO_MODE_BIT);
                     setState(SystemState::MANUAL_MODE);
                 } else if (_manual) {
-                    if (_state == SystemState::PUMP_RUNNING || _state == SystemState::PUMP_TEST) stopPump();
+                    if (_state == SystemState::PUMP_RUNNING) stopPump();
                     else startPumpManual();
                 }
                 break;
@@ -294,8 +280,8 @@ void StateMachine::getSnapshotJson(String& outHeartbeat, String& outStatus) {
     errors["pump"] = _pumpErr;
 
     JsonObject pump = st["pump"].to<JsonObject>();
-    pump["running"] = (_state == SystemState::PUMP_TEST || _state == SystemState::PUMP_RUNNING);
-    pump["test_phase"] = (_state == SystemState::PUMP_TEST);
+    pump["running"] = (_state == SystemState::PUMP_RUNNING);
+    pump["test_phase"] = false;
     pump["pulse_ok"] = _pulseOk;
     pump["pulse_frequency_hz"] = _pulseHz;
     pump["pulse_count_last_minute"] = _pulseCountLastMin;

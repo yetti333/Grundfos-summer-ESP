@@ -10,7 +10,6 @@ const char* stateToString(SystemState s) {
         case SystemState::AUTO_MODE: return "AUTO_MODE";
         case SystemState::MANUAL_MODE: return "MANUAL_MODE";
         case SystemState::BYPASS_MODE: return "BYPASS_MODE";
-        case SystemState::PUMP_TEST: return "PUMP_TEST";
         case SystemState::PUMP_RUNNING: return "PUMP_RUNNING";
         case SystemState::PUMP_ERROR: return "PUMP_ERROR";
         default: return "UNKNOWN";
