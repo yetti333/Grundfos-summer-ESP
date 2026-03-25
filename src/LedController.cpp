@@ -25,7 +25,7 @@ LedController::BlinkCfg LedController::cfgFor(LedPattern p) {
         case LedPattern::AUTO_IDLE:   return {true, false, false, 40, 1000, false};
         case LedPattern::MANUAL_IDLE: return {true, false, false, 0, 0, true};
         case LedPattern::BYPASS_IDLE: return {true, false, true, 500, 500, false};
-        case LedPattern::PUMP_RUNNING:return {true, false, false, 0, 0, true};
+        case LedPattern::PUMP_RUNNING:return {true, false, true, 0, 0, true};
         case LedPattern::PUMP_ERROR:  return {false, true, false, 30, 30, false};
         case LedPattern::OFF:
         default:                      return {false, false, false, 0, 0, true};

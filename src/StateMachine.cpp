@@ -91,6 +91,20 @@ void StateMachine::updateBypass() {
     _bypass = _manual || _bypassApiValue;
 }
 
+void StateMachine::checkAutoSchedule() {
+    time_t now = time(nullptr);
+    struct tm t;
+    localtime_r(&now, &t);
+
+    int currentMinute = t.tm_hour * 60 + t.tm_min;
+    int scheduleMinute = _schedule.startHour * 60 + _schedule.startMinute;
+
+    if (currentMinute == scheduleMinute && _lastAutoMinute != currentMinute) {
+        _lastAutoMinute = currentMinute;
+        startPumpAuto();
+    }
+}
+
 void StateMachine::taskLoop() {
     StateEvent ev{};
     if (xQueueReceive(_stateQ, &ev, pdMS_TO_TICKS(200)) == pdTRUE) {
@@ -131,7 +145,7 @@ void StateMachine::taskLoop() {
             case StateEventType::PULSE_UPDATE:
                 setPulseInfo((uint16_t)ev.a, (uint32_t)ev.c, (uint8_t)ev.b, ev.flag, (uint32_t)time(nullptr));
                 // Log pulse info every second
-                Serial.printf("Pulse count last min: %u, Mode: %s, Bypass: %s\n", _pulseCountLastMin, _manual ? "MAN" : "AUTO", _bypass ? "ON" : "OFF");
+                //Serial.printf("Pulse count last min: %u, Mode: %s, Bypass: %s\n", _pulseCountLastMin, _manual ? "MAN" : "AUTO", _bypass ? "ON" : "OFF");
                 if (_state == SystemState::PUMP_RUNNING && !_bypass && !ev.flag) {
                     _pumpErr = true;
                     xEventGroupSetBits(_eg, PUMP_ERROR_BIT);

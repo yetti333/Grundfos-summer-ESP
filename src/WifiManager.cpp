@@ -72,6 +72,7 @@ void WifiManager::taskLoop() {
         if (s == WL_CONNECTED) {
             StateEvent ev{StateEventType::WIFI_CONNECTED, (int32_t)WiFi.RSSI(), 0, 0, true};
             Serial.printf("Connected to WiFi SSID '%s', RSSI: %d\n", WiFi.SSID().c_str(), WiFi.RSSI());
+            Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
             xQueueSend(_stateQ, &ev, 0);
         } else {
             StateEvent ev{StateEventType::WIFI_DISCONNECTED, 0, 0, 0, false};

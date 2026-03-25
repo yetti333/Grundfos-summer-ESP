@@ -39,14 +39,9 @@ void RestApiServer::begin() {
         req->send(200, "application/json", out);
     });
 
-    auto postJson = [](AsyncWebServerRequest* req, std::function<void(JsonVariantConst)> fn) {
-        if (!req->hasParam("plain", true)) {
-            req->send(400, "application/json", "{\"ok\":false}");
-            return;
-        }
-        String body = req->getParam("plain", true)->value();
+    auto postJson = [](AsyncWebServerRequest* req, uint8_t* data, size_t len, std::function<void(JsonVariantConst)> fn) {
         JsonDocument doc;
-        if (deserializeJson(doc, body) != DeserializationError::Ok) {
+        if (deserializeJson(doc, data, len) != DeserializationError::Ok) {
             req->send(400, "application/json", "{\"ok\":false}");
             return;
         }
@@ -54,8 +49,8 @@ void RestApiServer::begin() {
     };
 
     _server.on("/set/schedule", HTTP_POST, [this](AsyncWebServerRequest* req) {}, nullptr,
-        [this, postJson](AsyncWebServerRequest* req, uint8_t*, size_t, size_t, size_t) {
-            postJson(req, [this, req](JsonVariantConst v) {
+        [this, postJson](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t, size_t) {
+            postJson(req, data, len, [this, req](JsonVariantConst v) {
                 StateEvent e{};
                 e.type = StateEventType::API_SET_SCHEDULE;
                 e.a = v["start_hour"] | 19;
@@ -67,8 +62,8 @@ void RestApiServer::begin() {
         });
 
     _server.on("/set/mode", HTTP_POST, [this](AsyncWebServerRequest* req) {}, nullptr,
-        [this, postJson](AsyncWebServerRequest* req, uint8_t*, size_t, size_t, size_t) {
-            postJson(req, [this, req](JsonVariantConst v) {
+        [this, postJson](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t, size_t) {
+            postJson(req, data, len, [this, req](JsonVariantConst v) {
                 const char* mode = v["mode"] | "AUTO";
                 StateEvent e{};
                 e.type = (String(mode) == "AUTO") ? StateEventType::API_SET_MODE_AUTO : StateEventType::API_SET_MODE_MANUAL;
@@ -78,8 +73,8 @@ void RestApiServer::begin() {
         });
 
     _server.on("/set/bypass", HTTP_POST, [this](AsyncWebServerRequest* req) {}, nullptr,
-        [this, postJson](AsyncWebServerRequest* req, uint8_t*, size_t, size_t, size_t) {
-            postJson(req, [this, req](JsonVariantConst v) {
+        [this, postJson](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t, size_t) {
+            postJson(req, data, len, [this, req](JsonVariantConst v) {
                 bool on = v["bypass"] | false;
                 StateEvent e{};
                 e.type = on ? StateEventType::API_SET_BYPASS_ON : StateEventType::API_SET_BYPASS_OFF;
@@ -105,8 +100,8 @@ void RestApiServer::begin() {
     });
 
     _server.on("/provision", HTTP_POST, [this](AsyncWebServerRequest* req) {}, nullptr,
-        [this, postJson](AsyncWebServerRequest* req, uint8_t*, size_t, size_t, size_t) {
-            postJson(req, [this, req](JsonVariantConst v) {
+        [this, postJson](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t, size_t) {
+            postJson(req, data, len, [this, req](JsonVariantConst v) {
                 String ssid = v["ssid"] | "";
                 String pass = v["password"] | "";
                 if (ssid.isEmpty()) {
