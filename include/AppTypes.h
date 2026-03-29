@@ -86,7 +86,8 @@ enum class StateEventType : uint8_t {
     API_PUMP_STOP,
     API_SET_SCHEDULE,
     API_RETRY_WIFI,
-    API_RETRY_TIME
+    API_RETRY_TIME,
+    API_RESET_PUMP_ERROR
 };
 
 struct StateEvent {

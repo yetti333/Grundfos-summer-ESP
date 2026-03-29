@@ -219,6 +219,7 @@ void StateMachine::taskLoop() {
                 xEventGroupSetBits(_eg, AUTO_MODE_BIT);
                 xEventGroupClearBits(_eg, MANUAL_MODE_BIT | BYPASS_ACTIVE_BIT);
                 setState(SystemState::AUTO_MODE);
+                _log.add("MODE_CHANGE", "Auto mode via API");
                 break;
 
             case StateEventType::API_SET_MODE_MANUAL:
@@ -227,26 +228,31 @@ void StateMachine::taskLoop() {
                 xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
                 xEventGroupClearBits(_eg, AUTO_MODE_BIT);
                 setState(SystemState::MANUAL_MODE);
+                _log.add("MODE_CHANGE", "Manual mode via API");
                 break;
 
             case StateEventType::API_SET_BYPASS_ON:
                 _bypassApiValue = true;
                 updateBypass();
                 xEventGroupSetBits(_eg, BYPASS_ACTIVE_BIT);
+                _log.add("BYPASS", "Enabled via API");
                 break;
 
             case StateEventType::API_SET_BYPASS_OFF:
                 _bypassApiValue = false;
                 updateBypass();
                 xEventGroupClearBits(_eg, BYPASS_ACTIVE_BIT);
+                _log.add("BYPASS", "Disabled via API");
                 break;
 
             case StateEventType::API_PUMP_START:
                 startPumpManual();
+                _log.add("PUMP", "Started via API");
                 break;
 
             case StateEventType::API_PUMP_STOP:
                 stopPump();
+                _log.add("PUMP", "Stopped via API");
                 break;
 
             case StateEventType::API_SET_SCHEDULE:
@@ -263,6 +269,19 @@ void StateMachine::taskLoop() {
 
             case StateEventType::API_RETRY_TIME:
                 setState(SystemState::TIME_SYNC);
+                break;
+
+            case StateEventType::API_RESET_PUMP_ERROR:
+                if (_state == SystemState::PUMP_ERROR) {
+                    _pumpErr = false;
+                    xEventGroupClearBits(_eg, PUMP_ERROR_BIT);
+                    _manual = true;
+                    updateBypass();
+                    xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
+                    xEventGroupClearBits(_eg, AUTO_MODE_BIT);
+                    setState(SystemState::MANUAL_MODE);
+                    _log.add("PUMP_ERROR_RESET", "Via API");
+                }
                 break;
 
             default:

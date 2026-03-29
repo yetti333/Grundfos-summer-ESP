@@ -99,6 +99,12 @@ void RestApiServer::begin() {
         sendOk(req);
     });
 
+    _server.on("/pump/error-reset", HTTP_POST, [this](AsyncWebServerRequest* req) {
+        StateEvent e{StateEventType::API_RESET_PUMP_ERROR, 0, 0, 0, false};
+        xQueueSend(_stateQ, &e, 0);
+        sendOk(req);
+    });
+
     _server.on("/provision", HTTP_POST, [this](AsyncWebServerRequest* req) {}, nullptr,
         [this, postJson](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t, size_t) {
             postJson(req, data, len, [this, req](JsonVariantConst v) {
