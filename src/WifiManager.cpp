@@ -7,10 +7,6 @@
 #define HAS_SECRETS 0
 #endif
 
-namespace {
-constexpr const char* kDeviceHostname = "grundfos-pump";
-}
-
 static const char* wifiDisconnectReasonToString(uint8_t reason) {
     switch (reason) {
         case WIFI_REASON_AUTH_EXPIRE: return "AUTH_EXPIRE";
@@ -61,7 +57,7 @@ bool WifiManager::loadCredentials() {
 
 void WifiManager::begin(bool forceProvision) {
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname(kDeviceHostname);
+    WiFi.setHostname(MDNS_HOSTNAME);
     // Keep reconnect strategy under our control in taskLoop/connectIfNeeded.
     WiFi.setAutoReconnect(false);
 
@@ -78,7 +74,7 @@ void WifiManager::startProvisionAp() {
     _provisioning = true;
     Serial.println("[PROV] Starting WiFi provisioning AP");
 
-    stopMdns();
+    stopMDNS();
 
     // 1) AP+STA je praktictejsi: AP bezi, ale ESP se muze po provisioningu hned pripojit do STA.
     if (!WiFi.mode(WIFI_AP_STA)) {
@@ -104,7 +100,7 @@ void WifiManager::startProvisionAp() {
     Serial.println(WiFi.softAPIP());
 
     // 3) mDNS hostname pro klienta; kdyz selze, provisioning ma stale fungovat pres IP.
-    startMdns();
+    startMDNS();
 
     Serial.println("[PROV] AP ready");
 }
@@ -117,7 +113,7 @@ void WifiManager::connectIfNeeded() {
     _lastAttemptMs = now;
 
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname(kDeviceHostname);
+    WiFi.setHostname(MDNS_HOSTNAME);
     WiFi.begin(_ssid.c_str(), _pass.c_str());
 
     Serial.printf("Attempting to connect to WiFi SSID '%s'\n", _ssid.c_str());
@@ -128,33 +124,32 @@ void WifiManager::exitProvisioning() {
     _provisioning = false;
     Serial.println("[PROV] Exiting provisioning mode");
     WiFi.softAPdisconnect(true);
-    stopMdns();
+    stopMDNS();
     connectIfNeeded();
 }
 
-void WifiManager::startMdns() {
-    if (_mdnsRunning) {
-        return;
-    }
+void WifiManager::startMDNS() {
+    MDNS.end();
 
-    if (!MDNS.begin(kDeviceHostname)) {
-        Serial.println("[MDNS] WARN: mDNS begin failed (fallback to IP)");
+    if (!MDNS.begin(MDNS_HOSTNAME)) {
+        _mdnsRunning = false;
+        Serial.println("[mDNS] CHYBA: nepodarilo se spustit");
         return;
     }
 
     MDNS.addService("http", "tcp", 80);
     _mdnsRunning = true;
-    Serial.printf("[MDNS] Ready: http://%s.local\n", kDeviceHostname);
+    Serial.println(String("[mDNS] OK: ") + MDNS_HOSTNAME + ".local");
 }
 
-void WifiManager::stopMdns() {
+void WifiManager::stopMDNS() {
     if (!_mdnsRunning) {
         return;
     }
 
     MDNS.end();
     _mdnsRunning = false;
-    Serial.println("[MDNS] Stopped");
+    Serial.println("[mDNS] Stopped");
 }
 
 int32_t WifiManager::rssi() const {
@@ -174,15 +169,15 @@ bool WifiManager::mdnsRunning() const {
 }
 
 const char* WifiManager::hostname() const {
-    return kDeviceHostname;
+    return MDNS_HOSTNAME;
 }
 
 const char* WifiManager::mdnsHostname() const {
-    return kDeviceHostname;
+    return MDNS_HOSTNAME;
 }
 
 String WifiManager::mdnsUrl() const {
-    return String("http://") + kDeviceHostname + ".local/";
+    return String("http://") + MDNS_HOSTNAME + ".local/";
 }
 
 void WifiManager::onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
@@ -190,7 +185,8 @@ void WifiManager::onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
         case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
             uint8_t reason = info.wifi_sta_disconnected.reason;
             Serial.printf("WiFi disconnected, reason: %u (%s)\n", reason, wifiDisconnectReasonToString(reason));
-            stopMdns();
+            Serial.println("[WiFi] Odpojeno, cekam na reconnect...");
+            stopMDNS();
 
             if (reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT) {
                 Serial.println("WiFi Error: 4WAY_HANDSHAKE_TIMEOUT - Possible causes:");
@@ -216,8 +212,8 @@ void WifiManager::onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
             break;
 
         case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-            Serial.printf("WiFi got IP: %s\n", WiFi.localIP().toString().c_str());
-            startMdns();
+            Serial.printf("[WiFi] Nova IP: %s\n", WiFi.localIP().toString().c_str());
+            startMDNS();
             break;
 
         default:

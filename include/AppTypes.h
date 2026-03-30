@@ -12,6 +12,9 @@ constexpr gpio_num_t PIN_BUTTON = GPIO_NUM_14;
 constexpr gpio_num_t PIN_RELAY = GPIO_NUM_13;
 constexpr gpio_num_t PIN_PULSE = GPIO_NUM_27;
 
+constexpr const char* MDNS_HOSTNAME = "grundfos-pump";
+constexpr const char* MDNS_FQDN = "grundfos-pump.local";
+
 constexpr EventBits_t WIFI_OK_BIT      = BIT0;
 constexpr EventBits_t TIME_OK_BIT      = BIT1;
 constexpr EventBits_t PUMP_RUNNING_BIT = BIT2;

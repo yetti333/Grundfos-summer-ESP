@@ -1,6 +1,27 @@
 #include "StateMachine.h"
 #include <ArduinoJson.h>
 #include <time.h>
+#include <WiFi.h>
+
+namespace {
+String formatUptime(uint32_t uptimeSeconds) {
+    const uint32_t days = uptimeSeconds / 86400U;
+    const uint32_t hours = (uptimeSeconds % 86400U) / 3600U;
+    const uint32_t minutes = (uptimeSeconds % 3600U) / 60U;
+    return String(days) + "d " + String(hours) + "h " + String(minutes) + "m";
+}
+
+String isoNow() {
+    time_t now = time(nullptr);
+    struct tm t;
+    if (localtime_r(&now, &t) == nullptr || t.tm_year < 124) {
+        return "1970-01-01T00:00:00";
+    }
+    char out[24];
+    strftime(out, sizeof(out), "%Y-%m-%dT%H:%M:%S", &t);
+    return String(out);
+}
+}
 
 StateMachine::StateMachine(QueueHandle_t stateQ, QueueHandle_t ledQ, QueueHandle_t pumpCmdQ, EventGroupHandle_t eg,
                            ConfigStorage& cfg, EventLog& log)
@@ -297,11 +318,29 @@ void StateMachine::taskLoop() {
 }
 
 void StateMachine::getSnapshotJson(String& outHeartbeat, String& outStatus) {
+    const wifi_mode_t wifiMode = WiFi.getMode();
+    const bool apMode = (wifiMode == WIFI_AP || wifiMode == WIFI_AP_STA);
+    const bool stationMode = (wifiMode == WIFI_STA || wifiMode == WIFI_AP_STA);
+    const bool connected = (WiFi.status() == WL_CONNECTED);
+    const bool provisioningRequired = apMode && !connected;
+
+    String currentIp = (stationMode && connected) ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+    if (currentIp.isEmpty()) {
+        currentIp = "0.0.0.0";
+    }
+
+    const String mac = WiFi.macAddress();
+    const String ssid = connected ? WiFi.SSID() : String("");
+    const int32_t rssi = connected ? WiFi.RSSI() : -127;
+    const uint32_t uptimeSeconds = (millis() - _uptimeStart) / 1000U;
+    const String uptimeText = formatUptime(uptimeSeconds);
+    const String nowIso = isoNow();
+
     JsonDocument hb;
     hb["timestamp"] = (uint32_t)time(nullptr);
     hb["state"] = stateToString(_state);
     hb["wifi_rssi"] = _wifiRssi;
-    hb["uptime_sec"] = (millis() - _uptimeStart) / 1000U;
+    hb["uptime_sec"] = uptimeSeconds;
     hb["last_pulse_timestamp"] = _lastPulseTs;
     serializeJson(hb, outHeartbeat);
 
@@ -327,6 +366,42 @@ void StateMachine::getSnapshotJson(String& outHeartbeat, String& outStatus) {
     sch["start_hour"] = _schedule.startHour;
     sch["start_minute"] = _schedule.startMinute;
     sch["duration_minutes"] = _schedule.durationMinutes;
+
+    st["ip"] = currentIp;
+    st["mac"] = mac;
+    st["ssid"] = ssid;
+    st["hostname"] = MDNS_HOSTNAME;
+    st["mdns"] = MDNS_FQDN;
+    st["rssi"] = rssi;
+
+    JsonObject networkInfo = st["network_info"].to<JsonObject>();
+    networkInfo["ip"] = currentIp;
+    networkInfo["mac"] = mac;
+    networkInfo["ssid"] = ssid;
+    networkInfo["hostname"] = MDNS_HOSTNAME;
+    networkInfo["mdns"] = MDNS_FQDN;
+    networkInfo["rssi"] = rssi;
+    networkInfo["ap_mode"] = apMode;
+    networkInfo["station_mode"] = stationMode;
+    networkInfo["connected"] = connected;
+    networkInfo["last_seen"] = nowIso;
+
+    JsonObject deviceInfo = st["device_info"].to<JsonObject>();
+    deviceInfo["hostname"] = MDNS_HOSTNAME;
+    deviceInfo["mdns"] = MDNS_FQDN;
+    deviceInfo["firmware_version"] = "1.0.0";
+    deviceInfo["uptime"] = uptimeText;
+    deviceInfo["uptime_seconds"] = uptimeSeconds;
+    deviceInfo["provisioning_required"] = provisioningRequired;
+
+    st["uptime"] = uptimeText;
+    st["uptime_seconds"] = uptimeSeconds;
+    st["firmware_version"] = "1.0.0";
+    st["ap_mode"] = apMode;
+    st["station_mode"] = stationMode;
+    st["provisioning_required"] = provisioningRequired;
+
+    Serial.printf("[HTTP] GET /status -> ip=%s ap=%d\n", currentIp.c_str(), apMode ? 1 : 0);
 
     serializeJson(st, outStatus);
 }

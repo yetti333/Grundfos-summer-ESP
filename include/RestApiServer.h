@@ -22,4 +22,5 @@ private:
     AsyncWebServer _server;
 
     void sendOk(AsyncWebServerRequest* req);
+    void sendJson(AsyncWebServerRequest* req, int code, const String& body);
 };

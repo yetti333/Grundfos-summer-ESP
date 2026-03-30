@@ -24,8 +24,8 @@ private:
     bool loadCredentials();
     void connectIfNeeded();
     void startProvisionAp();
-    void startMdns();
-    void stopMdns();
+    void startMDNS();
+    void stopMDNS();
     void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info);
 
     QueueHandle_t _stateQ;

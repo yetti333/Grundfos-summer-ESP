@@ -1,5 +1,6 @@
 #include "RestApiServer.h"
 #include <ArduinoJson.h>
+#include <esp_system.h>
 
 namespace {
 const char* wifiStatusToString(wl_status_t status) {
@@ -20,24 +21,33 @@ const char* wifiStatusToString(wl_status_t status) {
 RestApiServer::RestApiServer(QueueHandle_t stateQ, StateMachine& sm, EventLog& log, ConfigStorage& cfg, WifiManager& wifi)
     : _stateQ(stateQ), _sm(sm), _log(log), _cfg(cfg), _wifi(wifi), _server(80) {}
 
+void RestApiServer::sendJson(AsyncWebServerRequest* req, int code, const String& body) {
+    AsyncWebServerResponse* resp = req->beginResponse(code, "application/json", body);
+    resp->addHeader("Content-Type", "application/json");
+    resp->addHeader("Connection", "keep-alive");
+    req->send(resp);
+}
+
 void RestApiServer::sendOk(AsyncWebServerRequest* req) {
-    req->send(200, "application/json", "{\"ok\":true}");
+    sendJson(req, 200, "{\"ok\":true}");
 }
 
 void RestApiServer::begin() {
+    DefaultHeaders::Instance().addHeader("Connection", "keep-alive");
+
     _server.on("/heartbeat", HTTP_GET, [this](AsyncWebServerRequest* req) {
         String hb, st;
         _sm.getSnapshotJson(hb, st);
-        req->send(200, "application/json", hb);
+        sendJson(req, 200, hb);
     });
 
     _server.on("/status", HTTP_GET, [this](AsyncWebServerRequest* req) {
         String hb, st;
         _sm.getSnapshotJson(hb, st);
-        req->send(200, "application/json", st);
+        sendJson(req, 200, st);
     });
 
-    _server.on("/diag/ping", HTTP_GET, [](AsyncWebServerRequest* req) {
+    _server.on("/diag/ping", HTTP_GET, [this](AsyncWebServerRequest* req) {
         JsonDocument doc;
         doc["ok"] = true;
         doc["uptime_sec"] = millis() / 1000U;
@@ -45,7 +55,7 @@ void RestApiServer::begin() {
 
         String out;
         serializeJson(doc, out);
-        req->send(200, "application/json", out);
+        sendJson(req, 200, out);
     });
 
     _server.on("/diag/network", HTTP_GET, [this](AsyncWebServerRequest* req) {
@@ -74,7 +84,7 @@ void RestApiServer::begin() {
 
         String out;
         serializeJson(doc, out);
-        req->send(200, "application/json", out);
+        sendJson(req, 200, out);
     });
 
     _server.on("/log", HTTP_GET, [this](AsyncWebServerRequest* req) {
@@ -92,13 +102,13 @@ void RestApiServer::begin() {
 
         String out;
         serializeJson(doc, out);
-        req->send(200, "application/json", out);
+        sendJson(req, 200, out);
     });
 
-    auto postJson = [](AsyncWebServerRequest* req, uint8_t* data, size_t len, std::function<void(JsonVariantConst)> fn) {
+    auto postJson = [this](AsyncWebServerRequest* req, uint8_t* data, size_t len, std::function<void(JsonVariantConst)> fn) {
         JsonDocument doc;
         if (deserializeJson(doc, data, len) != DeserializationError::Ok) {
-            req->send(400, "application/json", "{\"ok\":false}");
+            sendJson(req, 400, "{\"error\":\"invalid_json\"}");
             return;
         }
         fn(doc.as<JsonVariantConst>());
@@ -140,7 +150,7 @@ void RestApiServer::begin() {
         });
 
     _server.on("/bypass", HTTP_GET, [this](AsyncWebServerRequest* req) {
-        req->send(200, "application/json", String("{\"bypass\":") + (_sm.isBypassActive() ? "true" : "false") + "}");
+        sendJson(req, 200, String("{\"bypass\":") + (_sm.isBypassActive() ? "true" : "false") + "}");
     });
 
     _server.on("/pump/start", HTTP_POST, [this](AsyncWebServerRequest* req) {
@@ -162,19 +172,33 @@ void RestApiServer::begin() {
     });
 
     _server.on("/provision", HTTP_POST, [this](AsyncWebServerRequest* req) {}, nullptr,
-        [this, postJson](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t, size_t) {
-            postJson(req, data, len, [this, req](JsonVariantConst v) {
-                String ssid = v["ssid"] | "";
-                String pass = v["password"] | "";
-                if (ssid.isEmpty()) {
-                    req->send(400, "application/json", "{\"ok\":false}");
-                    return;
-                }
-                _cfg.saveWifi(ssid, pass);
-                StateEvent e{StateEventType::WIFI_PROVISION_DONE, 0, 0, 0, false};
-                xQueueSend(_stateQ, &e, 0);
-                sendOk(req);
-            });
+        [this](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t, size_t) {
+            JsonDocument doc;
+            if (deserializeJson(doc, data, len) != DeserializationError::Ok) {
+                sendJson(req, 400, "{\"error\":\"invalid_json\"}");
+                return;
+            }
+
+            String ssid = doc["ssid"] | "";
+            String pass = doc["password"] | "";
+            ssid.trim();
+
+            if (ssid.isEmpty()) {
+                sendJson(req, 400, "{\"error\":\"ssid_empty\"}");
+                return;
+            }
+
+            Serial.printf("[Provisioning] ssid=%s\n", ssid.c_str());
+            _cfg.saveWifi(ssid, pass);
+            StateEvent e{StateEventType::WIFI_PROVISION_DONE, 0, 0, 0, false};
+            xQueueSend(_stateQ, &e, 0);
+
+            sendJson(req, 200, "{\"ok\":true}");
+
+            xTaskCreate([](void*) {
+                vTaskDelay(pdMS_TO_TICKS(500));
+                esp_restart();
+            }, "restart_task", 2048, nullptr, 1, nullptr);
         });
 
     _server.begin();

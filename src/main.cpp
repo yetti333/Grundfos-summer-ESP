@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <esp_task_wdt.h>
+#include <ESPmDNS.h>
 #include "AppTypes.h"
 #include "ConfigStorage.h"
 #include "EventLog.h"
@@ -29,6 +30,12 @@ TimeManager* gTime = nullptr;
 PumpControl* gPump = nullptr;
 StateMachine* gSm = nullptr;
 RestApiServer* gApi = nullptr;
+
+static inline void mdnsTick() {
+#if defined(ARDUINO_ARCH_ESP8266)
+    MDNS.update();
+#endif
+}
 
 bool detectBootResetRequest() {
     pinMode(PIN_BUTTON, INPUT_PULLUP);
@@ -96,6 +103,16 @@ void taskApi(void*) {
         esp_task_wdt_reset();
     }
 }
+void taskMDNS(void*) {
+    esp_task_wdt_add(nullptr);
+    for (;;) {
+        if (WiFi.status() == WL_CONNECTED || WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA) {
+            mdnsTick();
+        }
+        esp_task_wdt_reset();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
 
 void setup() {
     Serial.begin(115200);
@@ -150,6 +167,7 @@ void setup() {
     xTaskCreatePinnedToCore(taskPump, "TaskPumpControl", 4096, nullptr, 3, nullptr, 1);
     xTaskCreatePinnedToCore(taskState, "TaskStateMachine", 8192, nullptr, 4, nullptr, 1);
     xTaskCreatePinnedToCore(taskApi, "TaskRestApi", 8192, nullptr, 2, nullptr, 0);
+    xTaskCreatePinnedToCore(taskMDNS, "TaskMDNS", 2048, nullptr, 1, nullptr, 0);
 
     StateEvent startEv{StateEventType::API_RETRY_WIFI, 0, 0, 0, false};
     xQueueSend(qStateEvents, &startEv, 0);
