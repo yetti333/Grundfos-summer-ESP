@@ -130,6 +130,10 @@ void StateMachine::taskLoop() {
                 setState(SystemState::WIFI_ERROR);
                 break;
 
+            case StateEventType::WIFI_PROVISION_DONE:
+                setState(SystemState::WIFI_CONNECT);
+                break;
+
             case StateEventType::TIME_SYNC_OK:
                 _timeErr = false;
                 xEventGroupSetBits(_eg, TIME_OK_BIT);

@@ -25,13 +25,27 @@ bool ConfigStorage::saveSchedule(const ScheduleConfig& cfg) {
 bool ConfigStorage::loadWifi(String& ssid, String& password) {
     ssid = _prefs.getString("wifi_ssid", "");
     password = _prefs.getString("wifi_pass", "");
-    return !ssid.isEmpty();
+    Serial.printf("[CFG] loadWifi: got SSID='%s' (len=%d), PASS len=%d from Preferences\n",
+                  ssid.c_str(), ssid.length(), password.length());
+    if (ssid.isEmpty()) {
+        Serial.println("[CFG] SSID is empty - returning false");
+        return false;
+    }
+    return true;
 }
 
 bool ConfigStorage::saveWifi(const String& ssid, const String& password) {
-    _prefs.putString("wifi_ssid", ssid);
-    _prefs.putString("wifi_pass", password);
-    return true;
+    Serial.printf("[CFG] saveWifi: saving SSID='%s' (len=%d), PASS len=%d\n",
+                  ssid.c_str(), ssid.length(), password.length());
+    bool s1 = _prefs.putString("wifi_ssid", ssid);
+    bool s2 = _prefs.putString("wifi_pass", password);
+    if (s1 && s2) {
+        Serial.println("[CFG] saveWifi: SUCCESS");
+        return true;
+    } else {
+        Serial.printf("[CFG] saveWifi: FAILED (ssid=%d, pass=%d)\n", s1, s2);
+        return false;
+    }
 }
 
 bool ConfigStorage::clearAll() {

@@ -1,8 +1,24 @@
 #include "RestApiServer.h"
 #include <ArduinoJson.h>
 
-RestApiServer::RestApiServer(QueueHandle_t stateQ, StateMachine& sm, EventLog& log, ConfigStorage& cfg)
-    : _stateQ(stateQ), _sm(sm), _log(log), _cfg(cfg), _server(80) {}
+namespace {
+const char* wifiStatusToString(wl_status_t status) {
+    switch (status) {
+        case WL_NO_SHIELD: return "NO_SHIELD";
+        case WL_IDLE_STATUS: return "IDLE";
+        case WL_NO_SSID_AVAIL: return "NO_SSID_AVAIL";
+        case WL_SCAN_COMPLETED: return "SCAN_COMPLETED";
+        case WL_CONNECTED: return "CONNECTED";
+        case WL_CONNECT_FAILED: return "CONNECT_FAILED";
+        case WL_CONNECTION_LOST: return "CONNECTION_LOST";
+        case WL_DISCONNECTED: return "DISCONNECTED";
+        default: return "UNKNOWN";
+    }
+}
+}
+
+RestApiServer::RestApiServer(QueueHandle_t stateQ, StateMachine& sm, EventLog& log, ConfigStorage& cfg, WifiManager& wifi)
+    : _stateQ(stateQ), _sm(sm), _log(log), _cfg(cfg), _wifi(wifi), _server(80) {}
 
 void RestApiServer::sendOk(AsyncWebServerRequest* req) {
     req->send(200, "application/json", "{\"ok\":true}");
@@ -19,6 +35,46 @@ void RestApiServer::begin() {
         String hb, st;
         _sm.getSnapshotJson(hb, st);
         req->send(200, "application/json", st);
+    });
+
+    _server.on("/diag/ping", HTTP_GET, [](AsyncWebServerRequest* req) {
+        JsonDocument doc;
+        doc["ok"] = true;
+        doc["uptime_sec"] = millis() / 1000U;
+        doc["free_heap"] = ESP.getFreeHeap();
+
+        String out;
+        serializeJson(doc, out);
+        req->send(200, "application/json", out);
+    });
+
+    _server.on("/diag/network", HTTP_GET, [this](AsyncWebServerRequest* req) {
+        wl_status_t status = WiFi.status();
+        JsonDocument doc;
+
+        doc["ok"] = true;
+        doc["wifi_connected"] = _wifi.connected();
+        doc["wifi_status_code"] = static_cast<int>(status);
+        doc["wifi_status_text"] = wifiStatusToString(status);
+        doc["provisioning_active"] = _wifi.provisioningActive();
+        doc["ssid"] = WiFi.SSID();
+        doc["rssi_dbm"] = _wifi.rssi();
+        doc["ip"] = WiFi.localIP().toString();
+        doc["gateway"] = WiFi.gatewayIP().toString();
+        doc["subnet"] = WiFi.subnetMask().toString();
+        doc["dns"] = WiFi.dnsIP().toString();
+        doc["mac"] = WiFi.macAddress();
+        doc["hostname"] = _wifi.hostname();
+        doc["mdns_running"] = _wifi.mdnsRunning();
+        doc["mdns_host"] = _wifi.mdnsHostname();
+        doc["mdns_url"] = _wifi.mdnsUrl();
+        doc["http_port"] = 80;
+        doc["http_ip_url"] = String("http://") + WiFi.localIP().toString() + "/";
+        doc["uptime_sec"] = millis() / 1000U;
+
+        String out;
+        serializeJson(doc, out);
+        req->send(200, "application/json", out);
     });
 
     _server.on("/log", HTTP_GET, [this](AsyncWebServerRequest* req) {
@@ -115,6 +171,8 @@ void RestApiServer::begin() {
                     return;
                 }
                 _cfg.saveWifi(ssid, pass);
+                StateEvent e{StateEventType::WIFI_PROVISION_DONE, 0, 0, 0, false};
+                xQueueSend(_stateQ, &e, 0);
                 sendOk(req);
             });
         });

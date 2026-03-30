@@ -118,7 +118,7 @@ void setup() {
     gTime = new TimeManager(qStateEvents);
     gPump = new PumpControl(qPumpCommands, qStateEvents, gEventGroup);
     gSm = new StateMachine(qStateEvents, qLedCommands, qPumpCommands, gEventGroup, gCfg, gLog);
-    gApi = new RestApiServer(qStateEvents, *gSm, gLog, gCfg);
+    gApi = new RestApiServer(qStateEvents, *gSm, gLog, gCfg, *gWifi);
 
     gLed->begin();
     gButton->begin();
