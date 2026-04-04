@@ -10,10 +10,15 @@ public:
 
 private:
     static void IRAM_ATTR isrPulse();
-    static volatile uint32_t s_pulseCounter;
-    static volatile uint32_t s_lastPulseMs;
+    static PulseInterpretedState interpretDuty(uint16_t dutyX100, bool validFrequency, bool pulsePresent);
+
+    static volatile uint32_t s_riseCount;
+    static volatile uint32_t s_lastRiseUs;
+    static volatile uint32_t s_lastPeriodUs;
+    static volatile uint32_t s_lastHighUs;
+    static volatile bool s_lastLevelHigh;
 
     QueueHandle_t _pulseQ;
     QueueHandle_t _stateQ;
-    uint32_t _lastCounter;
+    uint32_t _lastRiseCount;
 };

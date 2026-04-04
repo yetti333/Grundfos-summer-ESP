@@ -67,6 +67,23 @@ struct PulseEvent {
     uint8_t stabilityPercent;
     bool pulseOk;
     uint32_t lastPulseUnix;
+    uint32_t periodUs;
+    uint32_t highUs;
+    uint16_t dutyX100;
+    bool validFrequency;
+    uint8_t interpretedState;
+};
+
+enum class PulseInterpretedState : uint8_t {
+    UNKNOWN = 0,
+    STANDBY,
+    LOW_OPERATION,
+    NORMAL_OPERATION,
+    ALARM_LOW_VOLTAGE,
+    ALARM_ROTOR_BLOCKED,
+    ALARM_ELECTRICAL_FAULT,
+    INVALID_FREQUENCY,
+    PULSE_MISSING
 };
 
 enum class StateEventType : uint8_t {
@@ -100,6 +117,10 @@ struct StateEvent {
     int32_t b;
     int32_t c;
     bool flag;
+    int32_t d;
+    int32_t e;
+    uint32_t ts;
+    bool flag2;
 };
 
 struct ScheduleConfig {
@@ -121,3 +142,4 @@ struct PumpCommand {
 };
 
 const char* stateToString(SystemState s);
+const char* pulseStateToString(PulseInterpretedState s);

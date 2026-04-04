@@ -18,7 +18,9 @@ public:
     bool isBypassActive() const { return _bypass; }
 
     void setWifiInfo(bool connected, int32_t rssi);
-    void setPulseInfo(uint16_t hz, uint32_t count, uint8_t stability, bool ok, uint32_t lastTs);
+    void setPulseInfo(uint16_t hz, uint32_t count, uint8_t stability, bool ok, uint32_t lastTs,
+                      uint32_t periodUs, uint32_t highUs, uint16_t dutyX100,
+                      PulseInterpretedState interpreted, bool validFrequency);
 
 private:
     void setState(SystemState s);
@@ -53,6 +55,12 @@ private:
     uint32_t _pulseCountLastMin;
     uint8_t _pulseStability;
     uint32_t _lastPulseTs;
+    uint32_t _pulsePeriodUs;
+    uint32_t _pulseHighUs;
+    uint16_t _pulseDutyX100;
+    PulseInterpretedState _pulseInterpreted;
+    bool _pulseValidFrequency;
+    uint32_t _pumpRunStartMs;
 
     uint32_t _uptimeStart;
     int _lastAutoMinute;

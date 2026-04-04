@@ -28,7 +28,9 @@ StateMachine::StateMachine(QueueHandle_t stateQ, QueueHandle_t ledQ, QueueHandle
     : _stateQ(stateQ), _ledQ(ledQ), _pumpCmdQ(pumpCmdQ), _eg(eg), _cfg(cfg), _log(log),
       _state(SystemState::BOOT), _wifiErr(false), _timeErr(false), _pumpErr(false),
       _bypass(false), _bypassApiValue(false), _manual(false), _wifiConnected(false), _wifiRssi(-127), _pulseOk(false),
-      _pulseHz(0), _pulseCountLastMin(0), _pulseStability(0), _lastPulseTs(0), _uptimeStart(millis()),
+            _pulseHz(0), _pulseCountLastMin(0), _pulseStability(0), _lastPulseTs(0),
+            _pulsePeriodUs(0), _pulseHighUs(0), _pulseDutyX100(0), _pulseInterpreted(PulseInterpretedState::UNKNOWN),
+            _pulseValidFrequency(false), _pumpRunStartMs(0), _uptimeStart(millis()),
       _lastAutoMinute(-1) {
     _mtx = xSemaphoreCreateMutex();
 }
@@ -55,13 +57,20 @@ void StateMachine::setWifiInfo(bool connected, int32_t rssi) {
     }
 }
 
-void StateMachine::setPulseInfo(uint16_t hz, uint32_t count, uint8_t stability, bool ok, uint32_t lastTs) {
+void StateMachine::setPulseInfo(uint16_t hz, uint32_t count, uint8_t stability, bool ok, uint32_t lastTs,
+                                uint32_t periodUs, uint32_t highUs, uint16_t dutyX100,
+                                PulseInterpretedState interpreted, bool validFrequency) {
     if (xSemaphoreTake(_mtx, pdMS_TO_TICKS(50)) == pdTRUE) {
         _pulseHz = hz;
         _pulseCountLastMin = count * 60;
         _pulseStability = stability;
         _pulseOk = ok;
         if (lastTs > 0) _lastPulseTs = lastTs;
+        _pulsePeriodUs = periodUs;
+        _pulseHighUs = highUs;
+        _pulseDutyX100 = dutyX100;
+        _pulseInterpreted = interpreted;
+        _pulseValidFrequency = validFrequency;
         xSemaphoreGive(_mtx);
     }
 }
@@ -89,6 +98,7 @@ void StateMachine::setState(SystemState s) {
 void StateMachine::startPumpAuto() {
     PumpCommand c{PumpCommandType::START_AUTO, (uint32_t)_schedule.durationMinutes * 60U, 0};
     xQueueSend(_pumpCmdQ, &c, 0);
+    _pumpRunStartMs = millis();
     setState(SystemState::PUMP_RUNNING);
     _log.add("PUMP_START", "Automatic schedule");
 }
@@ -96,6 +106,7 @@ void StateMachine::startPumpAuto() {
 void StateMachine::startPumpManual() {
     PumpCommand c{PumpCommandType::START_MANUAL, 0, 0};
     xQueueSend(_pumpCmdQ, &c, 0);
+    _pumpRunStartMs = millis();
     setState(SystemState::PUMP_RUNNING);
     _log.add("PUMP_START", "Manual");
 }
@@ -103,13 +114,17 @@ void StateMachine::startPumpManual() {
 void StateMachine::stopPump() {
     PumpCommand c{PumpCommandType::STOP, 0, 0};
     xQueueSend(_pumpCmdQ, &c, 0);
+    _pumpRunStartMs = 0;
     if (_manual) setState(SystemState::MANUAL_MODE);
     else setState(SystemState::AUTO_MODE);
     _log.add("PUMP_STOP", "Requested");
 }
 
 void StateMachine::updateBypass() {
-    _bypass = _manual || _bypassApiValue;
+    _bypass = _bypassApiValue;
+
+    if (_bypass) xEventGroupSetBits(_eg, BYPASS_ACTIVE_BIT);
+    else xEventGroupClearBits(_eg, BYPASS_ACTIVE_BIT);
 }
 
 void StateMachine::checkAutoSchedule() {
@@ -168,15 +183,53 @@ void StateMachine::taskLoop() {
                 break;
 
             case StateEventType::PULSE_UPDATE:
-                setPulseInfo((uint16_t)ev.a, (uint32_t)ev.c, (uint8_t)ev.b, ev.flag, (uint32_t)time(nullptr));
-                // Log pulse info every second
-                //Serial.printf("Pulse count last min: %u, Mode: %s, Bypass: %s\n", _pulseCountLastMin, _manual ? "MAN" : "AUTO", _bypass ? "ON" : "OFF");
-                if (_state == SystemState::PUMP_RUNNING && !_bypass && !ev.flag) {
-                    _pumpErr = true;
-                    xEventGroupSetBits(_eg, PUMP_ERROR_BIT);
-                    stopPump();
-                    setState(SystemState::PUMP_ERROR);
-                    _log.add("PUMP_ERROR", "Pulse missing");
+                {
+                    const uint16_t hz = (uint16_t)(ev.a > 0 ? ev.a : 0);
+                    const int err = abs((int)hz - 75);
+                    int st = 100 - (err * 100 / 75);
+                    if (st < 0) st = 0;
+                    if (st > 100) st = 100;
+
+                    setPulseInfo(hz,
+                                 (uint32_t)hz,
+                                 (uint8_t)st,
+                                 ev.flag,
+                                 ev.ts,
+                                 (uint32_t)(ev.c > 0 ? ev.c : 0),
+                                 (uint32_t)(ev.d > 0 ? ev.d : 0),
+                                 (uint16_t)(ev.b > 0 ? ev.b : 0),
+                                 (PulseInterpretedState)ev.e,
+                                 ev.flag2);
+                }
+
+                if (_state == SystemState::PUMP_RUNNING && !_bypass) {
+                    const PulseInterpretedState interpreted = (PulseInterpretedState)ev.e;
+                    const bool startupGraceActive = _pumpRunStartMs > 0 && (millis() - _pumpRunStartMs) < 10000UL;
+
+                    bool stopForPwmError = false;
+                    const char* reason = nullptr;
+
+                    if (interpreted == PulseInterpretedState::ALARM_LOW_VOLTAGE) {
+                        stopForPwmError = true;
+                        reason = "PWM alarm: low voltage";
+                    } else if (interpreted == PulseInterpretedState::ALARM_ROTOR_BLOCKED) {
+                        stopForPwmError = true;
+                        reason = "PWM alarm: rotor blocked";
+                    } else if (interpreted == PulseInterpretedState::ALARM_ELECTRICAL_FAULT) {
+                        stopForPwmError = true;
+                        reason = "PWM alarm: electrical fault";
+                    } else if (interpreted == PulseInterpretedState::PULSE_MISSING && !startupGraceActive) {
+                        stopForPwmError = true;
+                        reason = "Pulse missing";
+                    }
+
+                    if (stopForPwmError) {
+                        _pumpErr = true;
+                        xEventGroupSetBits(_eg, PUMP_ERROR_BIT);
+                        stopPump();
+                        setState(SystemState::PUMP_ERROR);
+                        _log.add("PUMP_ERROR", reason);
+                    }
                 }
                 break;
 
@@ -194,6 +247,7 @@ void StateMachine::taskLoop() {
                     _pumpErr = false;
                     xEventGroupClearBits(_eg, PUMP_ERROR_BIT);
                     _manual = true;
+                    _bypassApiValue = true;
                     updateBypass();
                     xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
                     xEventGroupClearBits(_eg, AUTO_MODE_BIT);
@@ -207,7 +261,7 @@ void StateMachine::taskLoop() {
             case StateEventType::BUTTON_LONG:
                 if (_state == SystemState::AUTO_MODE) {
                     _manual = true;
-                    _bypassApiValue = false;
+                    _bypassApiValue = true;
                     updateBypass();
                     xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
                     xEventGroupClearBits(_eg, AUTO_MODE_BIT);
@@ -232,7 +286,6 @@ void StateMachine::taskLoop() {
                 if (_state == SystemState::BYPASS_MODE && ev.a >= 5000) {
                     _bypassApiValue = true;
                     updateBypass();
-                    xEventGroupSetBits(_eg, BYPASS_ACTIVE_BIT);
                     setState(SystemState::MANUAL_MODE);
                     _log.add("BYPASS", "Enabled");
                 }
@@ -240,15 +293,17 @@ void StateMachine::taskLoop() {
 
             case StateEventType::API_SET_MODE_AUTO:
                 _manual = false;
+                _bypassApiValue = false;
                 updateBypass();
                 xEventGroupSetBits(_eg, AUTO_MODE_BIT);
-                xEventGroupClearBits(_eg, MANUAL_MODE_BIT | BYPASS_ACTIVE_BIT);
+                xEventGroupClearBits(_eg, MANUAL_MODE_BIT);
                 setState(SystemState::AUTO_MODE);
                 _log.add("MODE_CHANGE", "Auto mode via API");
                 break;
 
             case StateEventType::API_SET_MODE_MANUAL:
                 _manual = true;
+                _bypassApiValue = true;
                 updateBypass();
                 xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
                 xEventGroupClearBits(_eg, AUTO_MODE_BIT);
@@ -259,14 +314,12 @@ void StateMachine::taskLoop() {
             case StateEventType::API_SET_BYPASS_ON:
                 _bypassApiValue = true;
                 updateBypass();
-                xEventGroupSetBits(_eg, BYPASS_ACTIVE_BIT);
                 _log.add("BYPASS", "Enabled via API");
                 break;
 
             case StateEventType::API_SET_BYPASS_OFF:
                 _bypassApiValue = false;
                 updateBypass();
-                xEventGroupClearBits(_eg, BYPASS_ACTIVE_BIT);
                 _log.add("BYPASS", "Disabled via API");
                 break;
 
@@ -301,6 +354,7 @@ void StateMachine::taskLoop() {
                     _pumpErr = false;
                     xEventGroupClearBits(_eg, PUMP_ERROR_BIT);
                     _manual = true;
+                    _bypassApiValue = true;
                     updateBypass();
                     xEventGroupSetBits(_eg, MANUAL_MODE_BIT);
                     xEventGroupClearBits(_eg, AUTO_MODE_BIT);
@@ -361,6 +415,12 @@ void StateMachine::getSnapshotJson(String& outHeartbeat, String& outStatus) {
     pump["pulse_frequency_hz"] = _pulseHz;
     pump["pulse_count_last_minute"] = _pulseCountLastMin;
     pump["pulse_stability"] = _pulseStability;
+    pump["period_ms"] = _pulsePeriodUs / 1000.0f;
+    pump["high_ms"] = _pulseHighUs / 1000.0f;
+    pump["duty_percent"] = _pulseDutyX100 / 100.0f;
+    pump["interpreted_state"] = pulseStateToString(_pulseInterpreted);
+    pump["valid_frequency"] = _pulseValidFrequency;
+    pump["timestamp"] = _lastPulseTs;
 
     JsonObject sch = st["schedule"].to<JsonObject>();
     sch["start_hour"] = _schedule.startHour;
